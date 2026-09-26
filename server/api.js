@@ -5,7 +5,6 @@
  * incluindo validação de projeto, streaming NDJSON e tratamento de erros.
  */
 
-const { statusAll } = require('./providers/index.js');
 
 /**
  * Envia uma resposta JSON padronizada
@@ -112,26 +111,41 @@ async function handle(req, res, ctx) {
       }
       const projects = await ctx.workspace.listProjects();
       const settings = ctx.settings ? ctx.settings.getAll() : { agents: {} };
-      const providers = await statusAll(ctx.env);
+      // Snapshot imediato (pode ser o da sessão anterior enquanto a descoberta roda);
+      // a UI busca /api/models em seguida para receber a lista desta sessão.
+      const models = ctx.models.snapshot();
       sendJson(res, 200, {
         mode: ctx.workspace.mode,
         projects,
         agents: ctx.agents || [],
         workflows: ctx.workflows || [],
         settings,
-        providers
+        models,
+        providers: models.providers
       });
       return;
     }
 
-    // 2. GET /api/providers/status
-    if (pathname === '/api/providers/status') {
+    // 2. GET /api/models — catálogo descoberto nesta sessão (aguarda a descoberta em andamento)
+    //    GET /api/providers/status — mesmo conteúdo, só a lista de providers (compatibilidade)
+    if (pathname === '/api/models' || pathname === '/api/providers/status') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Método não permitido' });
         return;
       }
-      const providers = await statusAll(ctx.env);
-      sendJson(res, 200, providers);
+      const models = await ctx.models.whenReady();
+      sendJson(res, 200, pathname === '/api/models' ? models : models.providers);
+      return;
+    }
+
+    // 2b. POST /api/models/refresh — redescobre todos os modelos agora
+    if (pathname === '/api/models/refresh') {
+      if (method !== 'POST') {
+        sendJson(res, 405, { error: 'Método não permitido' });
+        return;
+      }
+      const models = await ctx.models.refresh();
+      sendJson(res, 200, models);
       return;
     }
 

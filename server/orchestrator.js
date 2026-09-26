@@ -85,6 +85,32 @@ function createOrchestrator(ctx) {
   const getWorkflows = () => contextObj.workflows || [];
 
   /**
+   * Executa o provider consultando o catálogo de modelos: falha rápido (com motivo) se o modelo
+   * já é sabidamente indisponível e registra o resultado da execução (cota, auth, sucesso).
+   */
+  async function runWithCatalog(providerId, provider, model, runOpts, { skipCheck = false } = {}) {
+    const catalog = contextObj.models;
+    if (catalog && !skipCheck) {
+      const st = catalog.check(providerId, model);
+      if (!st.available) {
+        const back = st.until ? ` — volta por volta de ${new Date(st.until).toLocaleString('pt-BR')}` : '';
+        throw new Error(
+          `Modelo "${model || 'padrão'}" (${providerId}) indisponível: ${st.reason || 'motivo desconhecido'}${back}. ` +
+          'Troque o modelo do agente em ⚙ Modelos ou clique em "Atualizar lista".'
+        );
+      }
+    }
+    try {
+      const result = await provider.run(runOpts);
+      if (catalog) catalog.markSuccess(providerId, model);
+      return result;
+    } catch (err) {
+      if (catalog) catalog.markFromError(providerId, model, err && err.message);
+      throw err;
+    }
+  }
+
+  /**
    * Envia uma mensagem em modo chat individual
    */
   async function sendMessage({ projectId, convId, text, context, agentId, workflowId, signal, emit = () => {} }) {
@@ -289,7 +315,7 @@ function createOrchestrator(ctx) {
     emit({ type: 'status', messageId: agentMessage.id, text: `${agent.name} está pensando…` });
 
     try {
-      const result = await provider.run({
+      const result = await runWithCatalog(providerId, provider, model, {
         env: contextObj.env,
         model,
         systemPrompt,
@@ -482,7 +508,7 @@ function createOrchestrator(ctx) {
 
         try {
           // Party não usa sessões CLI (sempre prompt completo)
-          const result = await provider.run({
+          const result = await runWithCatalog(providerId, provider, model, {
             env: contextObj.env,
             model,
             systemPrompt,
@@ -587,7 +613,7 @@ Inicie sua resposta obrigatoriamente com o cabeçalho:
         emit({ type: 'status', messageId: modMessage.id, text: `Moderador (${modAgent.name}) elaborando a síntese…` });
 
         try {
-          const result = await provider.run({
+          const result = await runWithCatalog(providerId, provider, model, {
             env: contextObj.env,
             model,
             systemPrompt,
@@ -659,7 +685,7 @@ Inicie sua resposta obrigatoriamente com o cabeçalho:
       const prompt = `Responda apenas com: ${testExpected}`;
       const systemPrompt = 'Você é um assistente testando conectividade. Responda exatamente como instruído.';
 
-      const result = await p.run({
+      const result = await runWithCatalog(provider, p, model, {
         env: contextObj.env,
         model,
         systemPrompt,
@@ -673,7 +699,7 @@ Inicie sua resposta obrigatoriamente com o cabeçalho:
         projectId,
         signal,
         onEvent: () => {}
-      });
+      }, { skipCheck: true }); // "Testar" sempre executa de verdade: é assim que se reverifica um modelo
 
       return {
         ok: true,

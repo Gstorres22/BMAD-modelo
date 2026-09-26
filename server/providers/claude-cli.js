@@ -2,73 +2,99 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { resolveCommand, spawnProcess } = require('./spawn.js');
+const { resolveCommand, spawnProcess, runCommand } = require('./spawn.js');
 
-const DEFAULT_MODELS = 'sonnet,opus,haiku,claude-opus-5-5,claude-sonnet-5,claude-fable-5-1';
 const READONLY_TOOLS = 'Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git status:*)';
 const EDIT_TOOLS = 'Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git status:*),Edit,Write,MultiEdit';
 
-function parseModels(modelsStr) {
-  return (modelsStr || DEFAULT_MODELS)
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean);
+// Aliases que o próprio Claude CLI resolve para a versão mais recente de cada família,
+// conforme a assinatura logada. Usados quando não há ANTHROPIC_API_KEY para listar via API.
+const CLI_ALIASES = [
+  { id: 'sonnet', label: 'Sonnet (alias do CLI → versão mais recente)' },
+  { id: 'opus', label: 'Opus (alias do CLI → versão mais recente)' },
+  { id: 'haiku', label: 'Haiku (alias do CLI → versão mais recente)' }
+];
+
+/** Lista os modelos da conta via API da Anthropic (requer ANTHROPIC_API_KEY). */
+async function fetchApiModels(apiKey) {
+  const models = [];
+  let afterId = null;
+  for (let page = 0; page < 10; page++) {
+    const url = new URL('https://api.anthropic.com/v1/models');
+    url.searchParams.set('limit', '1000');
+    if (afterId) url.searchParams.set('after_id', afterId);
+    const res = await fetch(url, {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`API da Anthropic ${res.status}: ${body?.error?.message || res.statusText}`);
+    }
+    const json = await res.json();
+    for (const m of json.data || []) models.push({ id: m.id, label: m.display_name || m.id });
+    if (!json.has_more || !json.last_id) break;
+    afterId = json.last_id;
+  }
+  return models;
 }
 
 /**
- * Verifica o status de disponibilidade do Claude CLI.
+ * Descobre disponibilidade e modelos do Claude CLI.
+ * - Disponibilidade: `claude auth status` (login) ou ANTHROPIC_API_KEY.
+ * - Modelos: API da Anthropic quando há ANTHROPIC_API_KEY; senão, os aliases do CLI.
  * @param {object} env
- * @returns {Promise<{ available: boolean, detail: string, models: string[] }>}
+ * `exhaustive: false` quando só há aliases: outros ids válidos do CLI (ex.: claude-sonnet-5) não aparecem na
+ * lista e são validados no primeiro uso.
+ * @returns {Promise<{ available: boolean, detail: string, source: string, exhaustive: boolean, models: Array<{id: string, label: string}> }>}
  */
-async function status(env) {
+async function listModels(env) {
   const cmd = env?.CLAUDE_CLI_PATH || 'claude';
-  const models = parseModels(env?.CLAUDE_CLI_MODELS);
-  const resolved = resolveCommand(cmd);
-
-  if (!resolved) {
-    return {
-      available: false,
-      detail: 'Comando não encontrado no PATH',
-      models
-    };
+  if (!resolveCommand(cmd)) {
+    return { available: false, detail: `Comando "${cmd}" não encontrado no PATH (CLAUDE_CLI_PATH)`, source: 'cli', exhaustive: false, models: [] };
   }
 
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 15000);
+  const apiKey = env?.ANTHROPIC_API_KEY;
+  const [version, auth] = await Promise.all([
+    runCommand(cmd, ['--version'], { timeoutMs: 15000, envVarName: 'CLAUDE_CLI_PATH' }).catch(() => null),
+    runCommand(cmd, ['auth', 'status'], { timeoutMs: 20000, envVarName: 'CLAUDE_CLI_PATH' }).catch(() => null)
+  ]);
 
+  const versionText = version ? version.stdout.trim().split('\n')[0].trim() : '';
+  let authInfo = null;
   try {
-    let stdoutText = '';
-    let stderrText = '';
-
-    const res = await spawnProcess(cmd, ['--version'], {
-      signal: ac.signal,
-      onStdoutLine: (line) => {
-        stdoutText += line + '\n';
-      },
-      onStderr: (chunk) => {
-        stderrText += chunk;
-      },
-      envVarName: 'CLAUDE_CLI_PATH'
-    });
-
-    clearTimeout(timer);
-
-    const combined = (stdoutText || stderrText).trim();
-    const firstLine = combined.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
-
-    return {
-      available: res.code === 0,
-      detail: firstLine || (res.code === 0 ? 'Disponível' : `Falha ao executar --version (código ${res.code})`),
-      models
-    };
-  } catch (err) {
-    clearTimeout(timer);
-    return {
-      available: false,
-      detail: err.message || 'Erro ao executar --version',
-      models
-    };
+    authInfo = auth ? JSON.parse(auth.stdout) : null;
+  } catch {
+    authInfo = null;
   }
+  const loggedIn = Boolean(apiKey) || Boolean(authInfo && authInfo.loggedIn);
+  const authText = apiKey
+    ? 'ANTHROPIC_API_KEY'
+    : authInfo && authInfo.loggedIn
+      ? `logado (${[authInfo.authMethod, authInfo.subscriptionType].filter(Boolean).join(', ')})`
+      : 'não logado — rode `claude login`';
+
+  let models = CLI_ALIASES;
+  let source = 'aliases do CLI';
+  let exhaustive = false;
+  let apiError = null;
+  if (apiKey) {
+    try {
+      models = await fetchApiModels(apiKey);
+      source = 'API da Anthropic';
+      exhaustive = true;
+    } catch (err) {
+      apiError = err.message;
+    }
+  }
+
+  return {
+    available: loggedIn,
+    detail: [versionText, authText, apiError].filter(Boolean).join(' · '),
+    source,
+    exhaustive,
+    models
+  };
 }
 
 /**
@@ -243,6 +269,6 @@ async function run(opts = {}) {
 module.exports = {
   id: 'claude-cli',
   label: 'Claude CLI',
-  status,
+  listModels,
   run
 };

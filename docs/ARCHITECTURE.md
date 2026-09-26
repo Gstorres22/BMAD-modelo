@@ -171,7 +171,7 @@ Cada provider exporta:
 {
   id: 'claude-cli' | 'agy-cli' | 'openai',
   label: 'Claude CLI' | 'AGY CLI (Antigravity)' | 'OpenAI API',
-  async status(env) -> { available: boolean, detail: string, models: string[] },
+  async listModels(env) -> { available, detail, source, exhaustive?: boolean, models: [{ id, label }] },
   async run(opts) -> { text, sessionId?: string, usage?: object }
 }
 opts = {
@@ -193,7 +193,21 @@ Regras: sempre emitir `delta` com texto incremental; ao final resolver com `text
 mensagem útil (incluindo stderr/`result` de erro do CLI, ex.: "Failed to authenticate..."). Se não houver sessão CLI, o
 provider usa `prompt`; se houver `sessionId`, usa `resumePrompt` e retoma.
 
-`providers/index.js`: `{ providers: {id: provider}, getProvider(id), async statusAll(env) -> [{id,label,...status}] }`.
+`providers/index.js`: `{ providers: {id: provider}, getProvider(id) }`.
+
+## Catálogo de modelos — `server/models.js`
+Nenhuma lista de modelos é fixa no código ou no .env. `createModelCatalog({ file, getEnv, providers })`:
+- **Descoberta** no início de cada sessão (subida do servidor): chama `listModels` de todos os providers em paralelo e
+  grava nome + disponibilidade em `data/models.json` (o bootstrap responde na hora com o snapshot anterior).
+  - Claude CLI: disponibilidade por `claude auth status`; modelos pela API da Anthropic se houver `ANTHROPIC_API_KEY`
+    (lista exaustiva), senão os aliases do CLI (`exhaustive: false` — outros ids são validados no primeiro uso).
+  - AGY CLI: `agy models` (linhas `id	Rótulo`).
+  - OpenAI: `GET /models`, filtrado por capacidade de chat (sem mídia/áudio/embeddings/Responses-only/snapshots datados).
+- **Em execução** (orquestrador → `runWithCatalog`): antes de rodar, `check()` falha rápido se o modelo está
+  sabidamente indisponível; depois, `markFromError()` classifica o erro (cota com horário de retorno, auth → provider,
+  modelo não suportado) e `markSuccess()` reabilita/aprende o modelo. Marcas de cota expiram sozinhas e sobrevivem a
+  novas descobertas enquanto o horário de retorno não chega.
+- API: `GET /api/models` (aguarda a descoberta em andamento), `POST /api/models/refresh`.
 
 ### providers/spawn.js
 ```js
@@ -220,7 +234,7 @@ Comando: `<CLAUDE_CLI_PATH> -p --output-format stream-json --verbose --include-p
     `tool` (detail = input.file_path || input.pattern || input.command || JSON curto). Se NÃO houve stream_event de texto
     (partial desativado), emitir o `text` desses blocos como `delta`.
   - `{"type":"result","is_error":bool,"result":"...","session_id":...}` → fim; se `is_error` lançar Error(result).
-- status(): `resolveCommand` + `--version` (timeout 15 s). models: `CLAUDE_CLI_MODELS`.
+- listModels(): ver "Catálogo de modelos".
 
 ### agy-cli.js (formato real verificado)
 Comando: `<AGY_CLI_PATH> --print= --input-format stream-json --output-format stream-json [--model M] [--conversation <id>]
@@ -235,7 +249,7 @@ Comando: `<AGY_CLI_PATH> --print= --input-format stream-json --output-format str
   - `{"event":"result","result":{"status":"SUCCESS"|"ERROR","response":"...","error":"...","conversation_id":"..."}}` → fim;
     status ERROR → lançar Error(error).
   - Linhas não-JSON (ex.: `error: ...`, `warning: ...`) → acumular como stderr.
-- status(): `resolveCommand` + `--version`. models: `AGY_CLI_MODELS`.
+- listModels(): ver "Catálogo de modelos".
 
 ### openai.js
 - `POST {OPENAI_BASE_URL}/chat/completions` com `Authorization: Bearer OPENAI_API_KEY`, `stream: true`, `model`,
@@ -244,7 +258,7 @@ Comando: `<AGY_CLI_PATH> --print= --input-format stream-json --output-format str
   `delta`, acumula `delta.tool_calls` por index. Se `finish_reason === 'tool_calls'`: executa tools, emite `tool`, anexa
   `assistant` (com tool_calls) + mensagens `tool`, e repete (máx 12 iterações).
 - Sem `OPENAI_API_KEY` → lançar `Error('OPENAI_API_KEY não configurada no .env')`.
-- status(): available = chave presente; models: `OPENAI_MODELS`. Não faz chamada de rede no status.
+- listModels(): ver "Catálogo de modelos".
 
 ## Tools (OpenAI) — `server/tools.js`
 ```js
@@ -303,7 +317,9 @@ JSON em request/response. Erro → `{ error: "mensagem" }` com status 4xx/5xx.
 | Método | Rota | Corpo / Query | Resposta |
 |---|---|---|---|
 | GET | `/api/bootstrap` | | `{ mode, projects, agents, workflows, settings, providers }` (agents sem `persona` completa? — **inclui** `persona`) |
-| GET | `/api/providers/status` | | `[{ id, label, available, detail, models }]` |
+| GET | `/api/models` | | `{ refreshedAt, refreshing, providers: [{ id, label, available, detail, source, exhaustive, models: [{ id, label, available, reason?, until? }] }] }` |
+| POST | `/api/models/refresh` | | catálogo redescoberto |
+| GET | `/api/providers/status` | | só `providers` do catálogo (compatibilidade) |
 | PUT | `/api/settings/agents/:agentId` | `{ provider, model }` | `{ ok: true, settings }` |
 | POST | `/api/providers/test` | `{ provider, model, projectId }` | `{ ok, text?, error? }` |
 | GET | `/api/projects/:pid/conversations` | | `[...]` |
@@ -331,12 +347,9 @@ DEFAULT_PROVIDER=agy-cli
 DEFAULT_MODEL=gemini-3.8-flash-high
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODELS=gpt-5,gpt-5-mini,gpt-4.1
 CLAUDE_CLI_PATH=claude
 ANTHROPIC_API_KEY=
-CLAUDE_CLI_MODELS=sonnet,opus,haiku,claude-opus-5-5,claude-sonnet-5,claude-fable-5-1
 AGY_CLI_PATH=agy
 AGY_CLI_EXTRA_ARGS=
-AGY_CLI_MODELS=gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.1-pro-high,gemini-3.1-pro-low,claude-opus-4-6-thinking,claude-sonnet-4-6
 # AGENT_<ID>_PROVIDER / AGENT_<ID>_MODEL (ex.: AGENT_ARCHITECT_PROVIDER=claude-cli)
 ```

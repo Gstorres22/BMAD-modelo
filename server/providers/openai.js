@@ -1,12 +1,22 @@
-const DEFAULT_MODELS = 'gpt-5,gpt-5-mini,gpt-4.1';
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const MAX_TOOL_ITERATIONS = 12;
 
-function parseModels(modelsStr) {
-  return (modelsStr || DEFAULT_MODELS)
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean);
+// Filtro por CAPACIDADE (não por nome de modelo): o provider usa /chat/completions com tools,
+// então só entram famílias de chat. Ficam de fora mídia/áudio/embeddings/moderação, modelos
+// só-Responses API (codex, *-pro), variantes de busca, completions legados e snapshots datados
+// (o alias sem data já aponta para a versão atual).
+const CHAT_FAMILY = /^(gpt-|o\d|chatgpt-|chat-latest$)/i;
+const NOT_CHAT = /(image|audio|realtime|transcribe|tts|embedding|moderation|whisper|search|instruct|live|sora|codex|-pro\b)/i;
+const DATED_SNAPSHOT = /-(\d{4}-\d{2}-\d{2}|\d{4})$/;
+
+function isChatModel(id) {
+  return CHAT_FAMILY.test(id) && !NOT_CHAT.test(id) && !DATED_SNAPSHOT.test(id);
+}
+
+/** Agrupa por família (gpt → série o → demais) e, dentro dela, do mais novo para o mais antigo. */
+function compareModelIds(a, b) {
+  const family = (id) => (/^gpt-/i.test(id) ? 0 : /^o\d/i.test(id) ? 1 : 2);
+  return family(a) - family(b) || b.localeCompare(a, 'en', { numeric: true });
 }
 
 /**
@@ -27,18 +37,38 @@ function getToolsDefinitionsSafe(opts) {
 }
 
 /**
- * Verifica o status do provider OpenAI.
+ * Descobre os modelos de chat disponíveis para a chave via GET {OPENAI_BASE_URL}/models.
  * @param {object} env
- * @returns {Promise<{ available: boolean, detail: string, models: string[] }>}
+ * @returns {Promise<{ available: boolean, detail: string, source: string, models: Array<{id: string, label: string}> }>}
  */
-async function status(env) {
+async function listModels(env) {
   const apiKey = env?.OPENAI_API_KEY?.trim();
-  const models = parseModels(env?.OPENAI_MODELS);
-  const available = Boolean(apiKey);
+  if (!apiKey) {
+    return { available: false, detail: 'OPENAI_API_KEY ausente no .env', source: 'API /models', models: [] };
+  }
+  const baseUrl = (env?.OPENAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
+
+  const res = await fetch(`${baseUrl}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const reason = res.status === 401 ? 'chave inválida ou revogada' : body?.error?.message || res.statusText;
+    return { available: false, detail: `OpenAI ${res.status}: ${reason}`, source: 'API /models', models: [] };
+  }
+
+  const json = await res.json();
+  const all = (json.data || []).map((m) => m.id);
+  const models = all
+    .filter(isChatModel)
+    .sort(compareModelIds)
+    .map((id) => ({ id, label: id }));
 
   return {
-    available,
-    detail: available ? 'Chave configurada' : 'OPENAI_API_KEY ausente no .env',
+    available: models.length > 0,
+    detail: `${models.length} modelos de chat (de ${all.length} na conta)`,
+    source: 'API /models',
     models
   };
 }
@@ -57,8 +87,10 @@ async function run(opts = {}) {
   const baseUrl = (opts.env?.OPENAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
   const endpoint = `${baseUrl}/chat/completions`;
 
-  const availableModels = parseModels(opts.env?.OPENAI_MODELS);
-  const model = opts.model || availableModels[0] || 'gpt-5';
+  const model = opts.model;
+  if (!model) {
+    throw new Error('Nenhum modelo OpenAI selecionado para este agente. Escolha um em ⚙ Modelos.');
+  }
 
   const toolDefs = getToolsDefinitionsSafe(opts);
 
@@ -285,6 +317,6 @@ async function run(opts = {}) {
 module.exports = {
   id: 'openai',
   label: 'OpenAI API',
-  status,
+  listModels,
   run
 };

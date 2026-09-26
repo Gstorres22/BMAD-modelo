@@ -281,6 +281,12 @@
         <button type="button" class="btn btn-icon btn-close-modal" aria-label="Fechar modal">✕</button>
       </div>
       <div class="modal-body">
+        <!-- Catálogo de modelos descoberto nesta sessão -->
+        <div class="catalog-bar">
+          <span id="catalog-refreshed-at" class="catalog-refreshed-at">Descobrindo modelos…</span>
+          <button type="button" id="btn-refresh-models" class="btn btn-secondary btn-sm" aria-label="Atualizar lista de modelos">↻ Atualizar lista</button>
+        </div>
+
         <!-- Provider Status Cards -->
         <div id="provider-status-list" class="provider-status-grid">
           <!-- Cards injected dynamically -->
@@ -289,18 +295,14 @@
         <!-- Bulk Action Row -->
         <div class="bulk-apply-row">
           <span style="font-size: var(--font-size-xs); font-weight: 600; white-space: nowrap;">Aplicar a todos:</span>
-          <select id="bulk-provider-select" style="width: 140px;" aria-label="Provider em massa">
-            <option value="claude-cli">Claude CLI</option>
-            <option value="agy-cli">AGY CLI</option>
-            <option value="openai">OpenAI API</option>
-          </select>
-          <input type="text" id="bulk-model-input" list="bulk-models-datalist" placeholder="Nome do modelo..." aria-label="Modelo em massa">
-          <datalist id="bulk-models-datalist"></datalist>
+          <select id="bulk-provider-select" style="width: 160px;" aria-label="Provider em massa"></select>
+          <select id="bulk-model-select" class="model-select" aria-label="Modelo em massa"></select>
           <button type="button" id="btn-bulk-apply" class="btn btn-secondary btn-sm">Aplicar</button>
         </div>
 
         <p style="font-size: 11px; color: var(--text-muted);">
-          ℹ Nota: As credenciais ficam configuradas no arquivo <code>.env</code> (ex.: <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>). As alterações são salvas automaticamente.
+          ℹ Os modelos são descobertos automaticamente a cada início de sessão (e marcados como indisponíveis quando falham por cota ou autenticação).
+          As credenciais ficam no <code>.env</code> (ex.: <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>). As alterações são salvas automaticamente.
         </p>
 
         <!-- Agents Table -->

@@ -238,9 +238,42 @@ function spawnProcess(cmd, args = [], opts = {}) {
   });
 }
 
+/**
+ * Executa um comando curto e captura stdout/stderr completos, com timeout.
+ * Nunca rejeita por código de saída != 0 (quem chama decide); rejeita se o comando
+ * não existir ou estourar o timeout.
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {{ cwd?: string, env?: object, timeoutMs?: number, envVarName?: string }} [opts]
+ * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
+ */
+async function runCommand(cmd, args = [], opts = {}) {
+  const ac = new AbortController();
+  const timeoutMs = opts.timeoutMs || 30000;
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ac.abort(); }, timeoutMs);
+  const out = [];
+  try {
+    const res = await spawnProcess(cmd, args, {
+      cwd: opts.cwd,
+      env: opts.env,
+      signal: ac.signal,
+      envVarName: opts.envVarName,
+      onStdoutLine: (line) => out.push(line)
+    });
+    return { code: res.code, stdout: out.join('\n'), stderr: res.stderr };
+  } catch (err) {
+    if (timedOut) throw new Error(`"${cmd} ${args.join(' ')}" não respondeu em ${Math.round(timeoutMs / 1000)} s`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 module.exports = {
   resolveCommand,
   quoteWinArg,
   killTree,
-  spawnProcess
+  spawnProcess,
+  runCommand
 };

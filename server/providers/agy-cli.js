@@ -1,69 +1,50 @@
-const { resolveCommand, spawnProcess } = require('./spawn.js');
-
-const DEFAULT_MODELS =
-  'gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.1-pro-high,gemini-3.1-pro-low,claude-opus-4-6-thinking,claude-sonnet-4-6';
-
-function parseModels(modelsStr) {
-  return (modelsStr || DEFAULT_MODELS)
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean);
-}
+const { resolveCommand, spawnProcess, runCommand } = require('./spawn.js');
 
 /**
- * Verifica o status de disponibilidade do AGY CLI.
+ * Descobre os modelos disponíveis consultando o próprio AGY (`agy models`).
+ * Saída do CLI: uma linha por modelo, "<id>\t<rótulo>".
  * @param {object} env
- * @returns {Promise<{ available: boolean, detail: string, models: string[] }>}
+ * @returns {Promise<{ available: boolean, detail: string, source: string, models: Array<{id: string, label: string}> }>}
  */
-async function status(env) {
+async function listModels(env) {
   const cmd = env?.AGY_CLI_PATH || 'agy';
-  const models = parseModels(env?.AGY_CLI_MODELS);
-  const resolved = resolveCommand(cmd);
+  if (!resolveCommand(cmd)) {
+    return { available: false, detail: `Comando "${cmd}" não encontrado no PATH (AGY_CLI_PATH)`, source: 'agy models', models: [] };
+  }
 
-  if (!resolved) {
+  const [version, listing] = await Promise.all([
+    runCommand(cmd, ['--version'], { timeoutMs: 15000, envVarName: 'AGY_CLI_PATH' }).catch(() => null),
+    runCommand(cmd, ['models'], { timeoutMs: 60000, envVarName: 'AGY_CLI_PATH' })
+  ]);
+
+  const versionText = version ? (version.stdout + '\n' + version.stderr).trim().split('\n')[0].trim() : '';
+  const models = listing.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id, ...rest] = line.split('\t');
+      return { id: id.trim(), label: rest.join(' ').trim() || id.trim() };
+    })
+    // Descarta linhas que não são ids de modelo (mensagens de progresso/erro do CLI)
+    .filter((m) => /^[a-z0-9][\w.:-]*$/i.test(m.id));
+
+  if (listing.code !== 0 || models.length === 0) {
+    const err = (listing.stderr || listing.stdout).trim().split('\n').filter((l) => !/fetching/i.test(l)).pop();
     return {
       available: false,
-      detail: 'Comando não encontrado no PATH',
+      detail: err || `"agy models" não retornou modelos (código ${listing.code}). Verifique o login do Antigravity.`,
+      source: 'agy models',
       models
     };
   }
 
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 15000);
-
-  try {
-    let stdoutText = '';
-    let stderrText = '';
-
-    const res = await spawnProcess(cmd, ['--version'], {
-      signal: ac.signal,
-      onStdoutLine: (line) => {
-        stdoutText += line + '\n';
-      },
-      onStderr: (chunk) => {
-        stderrText += chunk;
-      },
-      envVarName: 'AGY_CLI_PATH'
-    });
-
-    clearTimeout(timer);
-
-    const combined = (stdoutText + '\n' + stderrText).trim();
-    const firstLine = combined.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
-
-    return {
-      available: res.code === 0,
-      detail: firstLine || (res.code === 0 ? 'Disponível' : `Falha ao executar --version (código ${res.code})`),
-      models
-    };
-  } catch (err) {
-    clearTimeout(timer);
-    return {
-      available: false,
-      detail: err.message || 'Erro ao executar --version',
-      models
-    };
-  }
+  return {
+    available: true,
+    detail: [versionText && `v${versionText.replace(/^v/i, '')}`, `${models.length} modelos`].filter(Boolean).join(' · '),
+    source: 'agy models',
+    models
+  };
 }
 
 /**
@@ -220,6 +201,6 @@ async function run(opts = {}) {
 module.exports = {
   id: 'agy-cli',
   label: 'AGY CLI (Antigravity)',
-  status,
+  listModels,
   run
 };

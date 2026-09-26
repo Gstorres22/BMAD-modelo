@@ -73,7 +73,8 @@
     workflows: [],
     settings: { agents: {} },
     providers: [],
-    providerModels: {}, // { providerId: string[] }
+    providerModels: {}, // { providerId: [{ id, label, available, reason?, until? }] }
+    catalog: null,
     selectedWorkflowId: null,
     replyAsAgentId: null,
     isStreaming: false,
@@ -269,8 +270,9 @@
       // Populate project selector
       renderProjectSelect();
 
-      // Load provider status & models
-      loadProvidersStatus();
+      // Catálogo de modelos: snapshot imediato e, em seguida, a descoberta desta sessão
+      applyCatalog(data.models);
+      loadModelCatalog();
 
       // Render Team
       renderTeamSection();
@@ -323,33 +325,133 @@
     });
   }
 
-  // --- Provider Status and Settings ---
-  async function loadProvidersStatus() {
-    try {
-      const statusList = await api('/api/providers/status');
-      state.providers = statusList || [];
-      state.providers.forEach(function (prov) {
-        state.providerModels[prov.id] = prov.models || [];
-      });
-      updateBulkDatalist();
-    } catch (e) {
-      console.warn('Erro ao carregar status dos providers:', e);
+  // --- Catálogo de modelos (descoberto pelo servidor a cada início de sessão) ---
+  function applyCatalog(catalog) {
+    if (!catalog || !Array.isArray(catalog.providers)) return;
+    state.catalog = catalog;
+    state.providers = catalog.providers;
+    state.providerModels = {};
+    catalog.providers.forEach(function (prov) {
+      state.providerModels[prov.id] = prov.models || [];
+    });
+  }
+
+  function isSettingsModalOpen() {
+    const modal = document.getElementById('modal-settings');
+    return Boolean(modal && modal.classList.contains('open'));
+  }
+
+  function renderCatalogViews() {
+    renderTeamSection();
+    if (isSettingsModalOpen()) {
+      renderProviderStatusCards();
+      renderAgentSettingsTable();
+      setupBulkApplyAction();
     }
   }
 
-  function updateBulkDatalist() {
-    const provSelect = document.getElementById('bulk-provider-select');
-    const datalist = document.getElementById('bulk-models-datalist');
-    if (!provSelect || !datalist) return;
+  // Busca o catálogo desta sessão (o servidor aguarda a descoberta em andamento)
+  async function loadModelCatalog() {
+    try {
+      applyCatalog(await api('/api/models'));
+      renderCatalogViews();
+    } catch (e) {
+      console.warn('Erro ao carregar catálogo de modelos:', e);
+    }
+  }
 
-    const providerId = provSelect.value;
+  async function refreshModelCatalog() {
+    const btn = document.getElementById('btn-refresh-models');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '↻ Atualizando…';
+    }
+    try {
+      applyCatalog(await api('/api/models/refresh', { method: 'POST' }));
+      renderCatalogViews();
+      showToast('Lista de modelos atualizada', 'success');
+    } catch (err) {
+      showToast('Erro ao atualizar modelos: ' + err.message, 'danger');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '↻ Atualizar lista';
+      }
+    }
+  }
+
+  function formatUntil(ts) {
+    if (!ts) return '';
+    const ms = ts - Date.now();
+    if (ms <= 0) return '';
+    const h = Math.floor(ms / 3600000);
+    const d = Math.floor(h / 24);
+    const text = d > 0 ? d + 'd ' + (h % 24) + 'h' : h > 0 ? h + 'h ' + Math.floor((ms % 3600000) / 60000) + 'min' : Math.ceil(ms / 60000) + 'min';
+    return 'volta em ' + text;
+  }
+
+  /** Situação de um provider/modelo segundo o catálogo. */
+  function getModelStatus(providerId, modelId) {
+    const prov = (state.providers || []).find(function (p) { return p.id === providerId; });
+    if (!prov) return { known: false, available: true };
+    if (!prov.available) return { known: true, available: false, reason: prov.detail || 'Provider indisponível' };
+    const model = (prov.models || []).find(function (m) { return m.id === modelId; });
+    if (!model) {
+      // Lista parcial (aliases do Claude CLI): ids fora dela são válidos até prova em contrário
+      return prov.exhaustive === false
+        ? { known: false, available: true, unverified: true }
+        : { known: false, available: false, reason: 'Modelo não encontrado na lista desta sessão' };
+    }
+    if (model.available) return { known: true, available: true };
+    return { known: true, available: false, reason: [model.reason, formatUntil(model.until)].filter(Boolean).join(' — ') };
+  }
+
+  function fillProviderSelect(select, currentProvider) {
+    if (!select) return;
+    select.innerHTML = '';
+    (state.providers || []).forEach(function (prov) {
+      const opt = document.createElement('option');
+      opt.value = prov.id;
+      opt.textContent = (prov.label || prov.id) + (prov.available ? '' : ' (indisponível)');
+      select.appendChild(opt);
+    });
+    if (currentProvider) select.value = currentProvider;
+  }
+
+  /** Preenche um <select> com os modelos descobertos do provider (indisponíveis ficam marcados). */
+  function fillModelSelect(select, providerId, currentModel) {
+    if (!select) return;
+    select.innerHTML = '';
     const models = state.providerModels[providerId] || [];
-    datalist.innerHTML = '';
+    const prov = (state.providers || []).find(function (p) { return p.id === providerId; });
+    const partialList = Boolean(prov && prov.exhaustive === false);
+
+    if (currentModel && !models.some(function (m) { return m.id === currentModel; })) {
+      const opt = document.createElement('option');
+      opt.value = currentModel;
+      opt.textContent = partialList
+        ? currentModel + ' (não verificado — validado no primeiro uso)'
+        : '⚠ ' + currentModel + ' (não listado nesta sessão)';
+      select.appendChild(opt);
+    }
+    if (models.length === 0 && !currentModel) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(nenhum modelo encontrado)';
+      select.appendChild(opt);
+    }
     models.forEach(function (m) {
       const opt = document.createElement('option');
-      opt.value = m;
-      datalist.appendChild(opt);
+      opt.value = m.id;
+      let text = m.label && m.label !== m.id ? m.id + ' — ' + m.label : m.id;
+      if (m.manual && m.available) text += ' (✓ verificado no uso)';
+      if (!m.available) {
+        text = '⚠ ' + text + ' — ' + ([m.reason || 'indisponível', formatUntil(m.until)].filter(Boolean).join(', '));
+      }
+      opt.textContent = text;
+      select.appendChild(opt);
     });
+    if (currentModel) select.value = currentModel;
   }
 
   // --- Team BMAD Section ---
@@ -400,6 +502,9 @@
         const prov = currentSetting.provider || agent.defaultProvider || 'agy-cli';
         const model = currentSetting.model || agent.defaultModel || 'padrão';
         const provAbbr = abbreviateProvider(prov);
+        const modelStatus = getModelStatus(prov, currentSetting.model || agent.defaultModel || '');
+        const badgeClass = 'agent-model-badge' + (modelStatus.available ? '' : ' is-unavailable');
+        const badgeTitle = prov + ' · ' + model + (modelStatus.available ? '' : ' — indisponível: ' + (modelStatus.reason || ''));
 
         const lockIcon = agent.canEdit ? '✏️' : '🔒';
         const lockTitle = agent.canEdit ? 'Pode editar arquivos' : 'Somente leitura';
@@ -413,7 +518,7 @@
           '  </div>',
           '  <div style="display:flex; justify-content:space-between; align-items:center;">',
           '    <span class="agent-title">' + escapeHtml(agent.title || '') + '</span>',
-          '    <span class="agent-model-badge" title="' + prov + ' · ' + model + '">' + escapeHtml(provAbbr) + ' · ' + escapeHtml(model) + '</span>',
+          '    <span class="' + badgeClass + '" title="' + escapeHtml(badgeTitle) + '">' + (modelStatus.available ? '' : '⚠ ') + escapeHtml(provAbbr) + ' · ' + escapeHtml(model) + '</span>',
           '  </div>',
           '</div>'
         ].join('');
@@ -1252,6 +1357,8 @@
 
       case 'done': {
         removeStreamingIndicators();
+        // A execução pode ter mudado a disponibilidade (cota, autenticação, modelo aprendido)
+        loadModelCatalog();
         break;
       }
     }
@@ -1707,17 +1814,30 @@
 
   async function openSettingsModal() {
     const modal = document.getElementById('modal-settings');
-    await loadProvidersStatus();
+    const btnRefresh = document.getElementById('btn-refresh-models');
+    if (btnRefresh) btnRefresh.onclick = refreshModelCatalog;
+    // Abre já com o que se sabe; se a descoberta ainda estiver rodando, re-renderiza ao terminar
     renderProviderStatusCards();
     renderAgentSettingsTable();
     setupBulkApplyAction();
     openModal(modal);
+    if (!state.catalog || state.catalog.refreshing) loadModelCatalog();
   }
 
   function renderProviderStatusCards() {
     const container = document.getElementById('provider-status-list');
     if (!container) return;
     container.innerHTML = '';
+
+    const refreshedEl = document.getElementById('catalog-refreshed-at');
+    if (refreshedEl) {
+      const cat = state.catalog || {};
+      refreshedEl.textContent = cat.refreshing
+        ? 'Descobrindo modelos desta sessão…'
+        : cat.refreshedAt
+          ? 'Modelos descobertos em ' + new Date(cat.refreshedAt).toLocaleString('pt-BR')
+          : 'Modelos ainda não descobertos';
+    }
 
     state.providers.forEach(function (prov) {
       const card = document.createElement('div');
@@ -1727,6 +1847,11 @@
       const statusBadge = isAvail
         ? '<span class="badge badge-success">✓ Disponível</span>'
         : '<span class="badge badge-danger">✗ Indisponível</span>';
+      const models = prov.models || [];
+      const unavailable = models.filter(function (m) { return !m.available; }).length;
+      const countText = models.length + ' modelo' + (models.length === 1 ? '' : 's') +
+        (unavailable ? ' · ' + unavailable + ' indisponíve' + (unavailable === 1 ? 'l' : 'is') : '') +
+        (prov.source ? ' · via ' + prov.source : '');
 
       card.innerHTML = [
         '<div class="provider-card-header">',
@@ -1734,7 +1859,7 @@
         '  ' + statusBadge,
         '</div>',
         '<div class="provider-card-detail">' + escapeHtml(prov.detail || '') + '</div>',
-        '<div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">' + (prov.models ? prov.models.length : 0) + ' modelos configurados</div>'
+        '<div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">' + escapeHtml(countText) + '</div>'
       ].join('');
 
       container.appendChild(card);
@@ -1743,20 +1868,22 @@
 
   function setupBulkApplyAction() {
     const provSelect = document.getElementById('bulk-provider-select');
-    const modelInput = document.getElementById('bulk-model-input');
+    const modelSelect = document.getElementById('bulk-model-select');
     const btnApply = document.getElementById('btn-bulk-apply');
 
     if (provSelect) {
+      const previous = provSelect.value;
+      fillProviderSelect(provSelect, previous);
+      fillModelSelect(modelSelect, provSelect.value, '');
       provSelect.onchange = function () {
-        updateBulkDatalist();
+        fillModelSelect(modelSelect, provSelect.value, '');
       };
-      updateBulkDatalist();
     }
 
     if (btnApply) {
       btnApply.onclick = async function () {
         const provider = provSelect.value;
-        const model = modelInput.value.trim();
+        const model = modelSelect.value.trim();
         if (!model) {
           showToast('Informe o modelo para aplicar a todos', 'danger');
           return;
@@ -1796,10 +1923,8 @@
     state.agents.forEach(function (agent) {
       const tr = document.createElement('tr');
       const curSetting = (state.settings.agents && state.settings.agents[agent.id]) || {};
-      const curProv = curSetting.provider || agent.defaultProvider || 'agy-cli';
+      const curProv = curSetting.provider || agent.defaultProvider || ((state.providers[0] || {}).id || '');
       const curModel = curSetting.model || agent.defaultModel || '';
-
-      const datalistId = 'datalist-' + agent.id;
 
       tr.innerHTML = [
         '<td>',
@@ -1812,15 +1937,10 @@
         '  </div>',
         '</td>',
         '<td>',
-        '  <select class="settings-prov-select" data-agent-id="' + agent.id + '">',
-        '    <option value="claude-cli"' + (curProv === 'claude-cli' ? ' selected' : '') + '>Claude CLI</option>',
-        '    <option value="agy-cli"' + (curProv === 'agy-cli' ? ' selected' : '') + '>AGY CLI</option>',
-        '    <option value="openai"' + (curProv === 'openai' ? ' selected' : '') + '>OpenAI API</option>',
-        '  </select>',
+        '  <select class="settings-prov-select" data-agent-id="' + agent.id + '" aria-label="Provider de ' + escapeHtml(agent.name) + '"></select>',
         '</td>',
         '<td>',
-        '  <input type="text" class="settings-model-input" data-agent-id="' + agent.id + '" list="' + datalistId + '" value="' + escapeHtml(curModel) + '" placeholder="Nome do modelo">',
-        '  <datalist id="' + datalistId + '"></datalist>',
+        '  <select class="settings-model-input model-select" data-agent-id="' + agent.id + '" aria-label="Modelo de ' + escapeHtml(agent.name) + '"></select>',
         '</td>',
         '<td style="text-align:center;">',
         '  <button type="button" class="btn btn-secondary btn-sm btn-test-provider" data-agent-id="' + agent.id + '">Testar</button>',
@@ -1828,23 +1948,11 @@
         '</td>'
       ].join('');
 
-      // Populate datalist for this row
-      const datalist = tr.querySelector('#' + datalistId);
-      function updateRowDatalist(provId) {
-        if (!datalist) return;
-        datalist.innerHTML = '';
-        const models = state.providerModels[provId] || [];
-        models.forEach(function (m) {
-          const opt = document.createElement('option');
-          opt.value = m;
-          datalist.appendChild(opt);
-        });
-      }
-      updateRowDatalist(curProv);
-
       // Auto-save on change
       const provSelect = tr.querySelector('.settings-prov-select');
       const modelInput = tr.querySelector('.settings-model-input');
+      fillProviderSelect(provSelect, curProv);
+      fillModelSelect(modelInput, curProv, curModel);
 
       async function saveRowSettings() {
         const prov = provSelect.value;
@@ -1863,7 +1971,9 @@
       }
 
       provSelect.addEventListener('change', function () {
-        updateRowDatalist(provSelect.value);
+        // Troca de provider: seleciona o primeiro modelo disponível dele
+        const firstAvailable = (state.providerModels[provSelect.value] || []).find(function (m) { return m.available; });
+        fillModelSelect(modelInput, provSelect.value, firstAvailable ? firstAvailable.id : '');
         saveRowSettings();
       });
 
@@ -1890,7 +2000,18 @@
           if (res.ok) {
             resultDiv.innerHTML = '<span style="color:var(--success);">✓ Sucesso</span>';
           } else {
-            resultDiv.innerHTML = '<span style="color:var(--danger);" title="' + escapeHtml(res.error || '') + '">✗ Erro</span>';
+            const errText = res.error || 'Erro';
+            resultDiv.innerHTML = '<span style="color:var(--danger);" title="' + escapeHtml(errText) + '">✗ ' +
+              escapeHtml(errText.length > 60 ? errText.slice(0, 60) + '…' : errText) + '</span>';
+          }
+          // O teste reverifica o modelo: atualiza o catálogo sem apagar o resultado desta linha
+          try {
+            applyCatalog(await api('/api/models'));
+            renderTeamSection();
+            renderProviderStatusCards();
+            fillModelSelect(modelInput, provSelect.value, modelInput.value);
+          } catch (e) {
+            console.warn('Erro ao atualizar catálogo após teste:', e);
           }
         } catch (err) {
           resultDiv.innerHTML = '<span style="color:var(--danger);" title="' + escapeHtml(err.message) + '">✗ Erro</span>';

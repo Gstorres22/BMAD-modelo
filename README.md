@@ -86,6 +86,23 @@ AGENT_PM_PROVIDER=openai
 AGENT_PM_MODEL=gpt-5
 ```
 
+### Descoberta automática de modelos
+
+Nenhuma lista de modelos é fixa no código ou no `.env`. A cada início de sessão, o BMAD Studio consulta cada provider e guarda o nome e a disponibilidade de todos os modelos em `data/models.json`:
+
+| Provider | Como descobre | Disponibilidade |
+|---|---|---|
+| **Claude CLI** | API da Anthropic (se houver `ANTHROPIC_API_KEY`), senão os aliases do CLI (`sonnet`, `opus`, `haiku`). Outros ids válidos, como `claude-sonnet-5`, são validados e aprendidos no primeiro uso. | `claude auth status` |
+| **AGY CLI** | `agy models` | lista retornada pelo CLI |
+| **OpenAI** | `GET /models` com a sua chave, só os modelos de chat | lista retornada pela API |
+
+Durante o uso, o catálogo se atualiza sozinho:
+- **Cota esgotada:** o modelo fica indisponível até o horário de retorno informado pelo provider (ex.: "Resets in 165h").
+- **Falha de autenticação:** o provider inteiro fica indisponível.
+- **Execução bem-sucedida:** o modelo volta a ficar disponível.
+
+Se um agente usa um modelo indisponível, a conversa falha na hora com o motivo, em vez de esperar o CLI. Em **⚙ Modelos**, o botão **↻ Atualizar lista** refaz a descoberta sem reiniciar o servidor.
+
 ---
 
 ## 🚀 Formas de Execução

@@ -21,42 +21,9 @@ function getProvider(id) {
   return provider;
 }
 
-/**
- * Executa a checagem de status de todos os providers em paralelo sem nunca rejeitar.
- * @param {object} env Objeto de variáveis de ambiente (.env)
- * @returns {Promise<Array<{ id: string, label: string, available: boolean, detail: string, models: string[] }>>}
- */
-async function statusAll(env) {
-  const providerList = Object.values(providers);
-
-  const results = await Promise.all(
-    providerList.map(async (provider) => {
-      try {
-        const s = await provider.status(env);
-        return {
-          id: provider.id,
-          label: provider.label,
-          available: Boolean(s.available),
-          detail: s.detail || '',
-          models: Array.isArray(s.models) ? s.models : []
-        };
-      } catch (err) {
-        return {
-          id: provider.id,
-          label: provider.label,
-          available: false,
-          detail: err?.message || 'Erro ao verificar status',
-          models: []
-        };
-      }
-    })
-  );
-
-  return results;
-}
-
+// A descoberta de modelos/disponibilidade de cada provider (`listModels`) é orquestrada
+// pelo catálogo em server/models.js.
 module.exports = {
   providers,
-  getProvider,
-  statusAll
+  getProvider
 };

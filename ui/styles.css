@@ -1533,3 +1533,34 @@ tr:nth-child(even) td {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Catálogo de modelos --- */
+.agent-model-badge.is-unavailable {
+  color: var(--warning);
+  border-color: var(--warning);
+  background-color: var(--warning-subtle);
+}
+
+.catalog-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.catalog-refreshed-at {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.model-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.bulk-apply-row .model-select {
+  flex: 1;
+}

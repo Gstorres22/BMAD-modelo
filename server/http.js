@@ -16,6 +16,8 @@ const { loadWorkflows } = require('./workflows.js');
 const { createSettings } = require('./settings.js');
 const { createStore } = require('./store.js');
 const { createOrchestrator } = require('./orchestrator.js');
+const { createModelCatalog } = require('./models.js');
+const { providers } = require('./providers/index.js');
 const api = require('./api.js');
 
 const MIME_TYPES = {
@@ -81,6 +83,7 @@ async function startServer({ root, env = {}, workspace, host, port, token }) {
   const agentsDir = path.join(root, 'agents');
   const workflowsDir = path.join(root, 'workflows');
   const settingsFile = path.join(root, 'data', 'settings.json');
+  const modelsFile = path.join(root, 'data', 'models.json');
   const uiDir = path.join(root, 'ui');
 
   const h = host || env.BMAD_STUDIO_HOST || '127.0.0.1';
@@ -95,6 +98,7 @@ async function startServer({ root, env = {}, workspace, host, port, token }) {
     workflows: [],
     settings: null,
     store: null,
+    models: null,
     orchestrator: null,
     uiDir,
     reload() {
@@ -109,6 +113,10 @@ async function startServer({ root, env = {}, workspace, host, port, token }) {
   // Inicializa configurações e store
   ctx.settings = createSettings({ file: settingsFile, env, agents: ctx.agents });
   ctx.store = createStore(workspace);
+
+  // Catálogo de modelos: descoberta de todos os providers no início da sessão
+  ctx.models = createModelCatalog({ file: modelsFile, getEnv: () => ctx.env, providers });
+  ctx.models.refresh().catch(() => {});
 
   // Inicializa orquestrador recebendo o próprio ctx
   ctx.orchestrator = createOrchestrator(ctx);
