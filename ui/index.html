@@ -328,6 +328,24 @@
     </div>
   </div>
 
+  <!-- Diálogo genérico de confirmação/entrada (confirm()/prompt() são bloqueados no webview do VS Code) -->
+  <div id="modal-dialog" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-dialog-title">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <h3 id="modal-dialog-title" class="modal-title">Confirmar</h3>
+        <button type="button" class="btn btn-icon" data-dialog-cancel aria-label="Fechar">✕</button>
+      </div>
+      <form id="modal-dialog-form" class="modal-body">
+        <p id="modal-dialog-message" class="modal-dialog-message"></p>
+        <input type="text" id="modal-dialog-input" autocomplete="off" spellcheck="false">
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dialog-cancel>Cancelar</button>
+        <button type="submit" form="modal-dialog-form" id="modal-dialog-ok" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal "Visualizar Arquivo" -->
   <div id="modal-view-file" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-view-file-title">
     <div class="modal-card modal-card-lg">

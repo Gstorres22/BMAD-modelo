@@ -627,7 +627,7 @@
         '    <span>' + relTime + '</span>',
         '  </div>',
         '</div>',
-        '<button type="button" class="conv-delete-btn" title="Excluir conversa" aria-label="Excluir conversa">🗑️</button>'
+        '<button type="button" class="conv-delete-btn" title="Excluir conversa" aria-label="Excluir conversa">' + TRASH_ICON + '</button>'
       ].join('');
 
       item.addEventListener('click', function (e) {
@@ -646,6 +646,11 @@
       list.appendChild(item);
     });
   }
+
+  // SVG inline: o emoji 🗑️ depende da fonte do sistema e some/vira quadrado em alguns webviews
+  const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' +
+    '<path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
   async function selectConversation(convId) {
     if (!state.currentProjectId || !convId) return;
@@ -669,7 +674,12 @@
   }
 
   async function deleteConversation(convId) {
-    if (!confirm('Deseja realmente excluir esta conversa?')) return;
+    const conv = state.conversations.find(function (c) { return c.id === convId; });
+    const ok = await confirmDialog(
+      'A conversa' + (conv && conv.title ? ' "' + conv.title + '"' : '') + ' será excluída permanentemente.',
+      { title: 'Excluir conversa?', confirmLabel: 'Excluir', danger: true }
+    );
+    if (!ok) return;
     try {
       await api('/api/projects/' + state.currentProjectId + '/conversations/' + convId, {
         method: 'DELETE'
@@ -973,7 +983,7 @@
       suggestedPath = 'docs/' + agId + '-' + dateStr + '.md';
     }
 
-    const path = prompt('Salvar resposta em:', suggestedPath);
+    const path = await promptDialog('Caminho do arquivo no projeto:', suggestedPath, { title: 'Salvar resposta', confirmLabel: 'Salvar' });
     if (!path) return;
 
     try {
@@ -1646,7 +1656,94 @@
     modalEl.classList.remove('open');
   }
 
+  /**
+   * Diálogo próprio no lugar de confirm()/prompt(): o webview do VS Code é um iframe sandbox sem
+   * "allow-modals", então os nativos retornam false/null na hora sem mostrar nada.
+   * Resolve com true/false (confirmação) ou com o texto digitado/null (quando opts.input existe).
+   */
+  let dialogResolve = null;
+
+  function showDialog(opts) {
+    const modal = document.getElementById('modal-dialog');
+    const titleEl = document.getElementById('modal-dialog-title');
+    const messageEl = document.getElementById('modal-dialog-message');
+    const inputEl = document.getElementById('modal-dialog-input');
+    const okBtn = document.getElementById('modal-dialog-ok');
+    const withInput = typeof opts.input === 'string';
+
+    if (dialogResolve) finishDialog(withInput ? null : false);
+
+    titleEl.textContent = opts.title || 'Confirmar';
+    messageEl.textContent = opts.message || '';
+    inputEl.style.display = withInput ? '' : 'none';
+    inputEl.value = withInput ? opts.input : '';
+    inputEl.placeholder = opts.placeholder || '';
+    okBtn.textContent = opts.confirmLabel || 'OK';
+    okBtn.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+    modal.dataset.withInput = withInput ? '1' : '';
+
+    openModal(modal);
+    setTimeout(function () {
+      if (withInput) {
+        inputEl.focus();
+        inputEl.select();
+      } else {
+        okBtn.focus();
+      }
+    }, 30);
+
+    return new Promise(function (resolve) {
+      dialogResolve = resolve;
+    });
+  }
+
+  function finishDialog(value) {
+    const modal = document.getElementById('modal-dialog');
+    closeModal(modal);
+    const resolve = dialogResolve;
+    dialogResolve = null;
+    if (resolve) resolve(value);
+  }
+
+  function confirmDialog(message, opts) {
+    return showDialog(Object.assign({ message: message }, opts || {}));
+  }
+
+  function promptDialog(message, defaultValue, opts) {
+    return showDialog(Object.assign({ title: 'Informe', message: message, input: defaultValue || '' }, opts || {}));
+  }
+
+  function initDialog() {
+    const modal = document.getElementById('modal-dialog');
+    const form = document.getElementById('modal-dialog-form');
+    const inputEl = document.getElementById('modal-dialog-input');
+    if (!modal || !form) return;
+
+    const cancel = function () {
+      finishDialog(modal.dataset.withInput ? null : false);
+    };
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      finishDialog(modal.dataset.withInput ? inputEl.value : true);
+    });
+    modal.querySelectorAll('[data-dialog-cancel]').forEach(function (btn) {
+      btn.addEventListener('click', cancel);
+    });
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) cancel();
+    });
+    modal.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+  }
+
   function initModals() {
+    initDialog();
+
     document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
       overlay.addEventListener('click', function (e) {
         if (e.target === overlay) {
@@ -2155,7 +2252,7 @@
         }
       } else if (codeBtn.classList.contains('btn-code-diff')) {
         if (!state.currentProjectId) return;
-        const targetPath = prompt('Caminho do arquivo no projeto para comparar (Diff):', '');
+        const targetPath = await promptDialog('Caminho do arquivo no projeto para comparar:', '', { title: 'Abrir diff', confirmLabel: 'Comparar', placeholder: 'src/arquivo.js' });
         if (!targetPath) return;
         try {
           await api('/api/projects/' + state.currentProjectId + '/actions/diff', {
@@ -2168,7 +2265,7 @@
         }
       } else if (codeBtn.classList.contains('btn-code-save')) {
         if (!state.currentProjectId) return;
-        const targetPath = prompt('Caminho do arquivo para salvar o código:', '');
+        const targetPath = await promptDialog('Caminho do arquivo no projeto:', '', { title: 'Salvar código', confirmLabel: 'Salvar', placeholder: 'src/arquivo.js' });
         if (!targetPath) return;
         try {
           const res = await api('/api/projects/' + state.currentProjectId + '/actions/save', {
