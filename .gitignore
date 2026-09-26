@@ -1,0 +1,8 @@
+.env
+.env-location
+data/
+.bmad-studio/
+node_modules/
+*.vsix
+.DS_Store
+Thumbs.db

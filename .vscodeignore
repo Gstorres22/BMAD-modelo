@@ -1,0 +1,7 @@
+.env
+data/**
+.bmad-studio/**
+.git/**
+scripts/**
+*.vsix
+docs/**

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMAD Studio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Backdrop for mobile drawers -->
+  <div id="drawer-backdrop" class="drawer-backdrop"></div>
+
+  <!-- Mobile Top Bar (visible on < 900px) -->
+  <header id="mobile-header">
+    <button type="button" id="btn-mobile-menu" class="btn btn-icon" aria-label="Abrir menu lateral">☰</button>
+    <div class="title-wrap">
+      <span>BMAD Studio</span>
+      <span id="mobile-mode-badge" class="badge">Standalone</span>
+    </div>
+    <button type="button" id="btn-mobile-context" class="btn btn-icon" aria-label="Abrir contexto do VS Code">📎</button>
+  </header>
+
+  <div id="app">
+    <!-- Left Sidebar (280px) -->
+    <aside id="sidebar-left">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <div class="brand-title">
+            <span>⚡ BMAD Studio</span>
+          </div>
+          <button type="button" id="btn-theme-toggle" class="btn btn-icon" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌓</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="project-select" aria-label="Selecionar projeto"></select>
+          <span id="mode-badge" class="badge">Standalone</span>
+        </div>
+        <div class="sidebar-actions">
+          <button type="button" id="btn-new-conv" class="btn btn-primary btn-sm" aria-label="Criar nova conversa">+ Conversa</button>
+          <button type="button" id="btn-open-settings" class="btn btn-secondary btn-sm" aria-label="Configurar modelos">⚙ Modelos</button>
+        </div>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Team Section grouped by phase -->
+        <div>
+          <div class="section-label">Equipe BMAD</div>
+          <div id="team-container">
+            <!-- Phase groups will be rendered here dynamically -->
+          </div>
+        </div>
+
+        <!-- Conversations Section -->
+        <div>
+          <div class="section-label">Conversas</div>
+          <div id="conversation-list" class="conversation-list">
+            <!-- Conversations will be rendered here -->
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Content -->
+    <main id="main-content">
+      <!-- Chat Header -->
+      <header id="chat-header" class="chat-header">
+        <div class="chat-header-info">
+          <div id="chat-title" class="chat-title">Carregando...</div>
+          <div id="chat-participants" class="chat-participants"></div>
+          <span id="chat-mode-badge" class="badge badge-accent">Chat</span>
+        </div>
+
+        <div class="chat-header-actions">
+          <!-- Party controls (shown only in party mode) -->
+          <div id="party-controls" class="party-controls" style="display: none;">
+            <label for="party-rounds">Rodadas:
+              <input type="number" id="party-rounds" min="1" max="5" value="1" aria-label="Número de rodadas">
+            </label>
+            <label for="party-synthesize">
+              <input type="checkbox" id="party-synthesize" checked> Síntese
+            </label>
+          </div>
+
+          <button type="button" id="btn-desktop-toggle-panel" class="btn btn-icon" title="Alternar painel de contexto" aria-label="Alternar painel de contexto">📎</button>
+        </div>
+      </header>
+
+      <!-- Workflow Chips Bar -->
+      <div id="workflow-bar" class="workflow-bar">
+        <!-- Workflow chips rendered here -->
+      </div>
+
+      <!-- Messages Area -->
+      <div id="chat-messages" class="chat-messages">
+        <!-- Empty State (shown when no messages) -->
+        <div id="empty-state" class="empty-state" style="display: none;">
+          <div class="empty-state-card">
+            <h2 class="empty-state-title">Bem-vindo ao BMAD Studio</h2>
+            <p class="empty-state-desc">
+              Desenvolva software colaborando com agentes especializados em cada fase do ciclo de engenharia:
+            </p>
+
+            <div class="bmad-flow-diagram">
+              <span class="step">1 · Análise</span> ➔
+              <span class="step">2 · Planejamento</span> ➔
+              <span class="step">3 · Solução</span> ➔
+              <span class="step">4 · Implementação</span>
+            </div>
+
+            <div class="empty-state-actions">
+              <button type="button" class="quick-btn" data-action="brainstorm" aria-label="Brainstorm com Carson">
+                <span>🧠</span>
+                <span>Brainstorm com Carson</span>
+              </button>
+              <button type="button" class="quick-btn" data-action="architecture" aria-label="Discutir arquitetura em Party Mode">
+                <span>🏗️</span>
+                <span>Discutir arquitetura (Party)</span>
+              </button>
+              <button type="button" class="quick-btn" data-action="review" aria-label="Revisar código com Quinn">
+                <span>🧪</span>
+                <span>Revisar código com Quinn</span>
+              </button>
+              <button type="button" class="quick-btn" data-action="prd" aria-label="Criar PRD com John">
+                <span>📋</span>
+                <span>Criar PRD com John</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Messages List -->
+        <div id="messages-list" style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
+          <!-- Rendered messages -->
+        </div>
+      </div>
+
+      <!-- Composer Area -->
+      <footer id="chat-composer" class="chat-composer">
+        <!-- Responder como (for chat with >1 agent) -->
+        <div id="reply-as-container" class="reply-as-bar" style="display: none;">
+          <label for="reply-as-select">Responder como:</label>
+          <select id="reply-as-select" aria-label="Escolher agente para responder"></select>
+        </div>
+
+        <div class="composer-row">
+          <textarea id="composer-input" class="composer-textarea" placeholder="Digite uma mensagem... (Enter envia, Shift+Enter nova linha)" rows="1" aria-label="Mensagem"></textarea>
+          <button type="button" id="btn-send" class="btn btn-primary composer-btn-send" aria-label="Enviar mensagem">
+            <span id="btn-send-label">Enviar</span>
+          </button>
+        </div>
+      </footer>
+    </main>
+
+    <!-- Right Panel (320px, collapsible) -->
+    <aside id="panel-right">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>Contexto do VS Code</span>
+        </div>
+        <button type="button" id="btn-collapse-panel" class="btn btn-icon" title="Recolher painel" aria-label="Recolher painel">✕</button>
+      </div>
+
+      <div class="panel-content">
+        <!-- Live Status Card -->
+        <div class="context-card">
+          <div class="context-card-title">Status ao vivo</div>
+          <div class="status-row">
+            <span class="status-label">Arquivo ativo:</span>
+            <span id="status-active-file" class="status-val" title="Nenhum">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Seleção:</span>
+            <span id="status-selection" class="status-val" title="Nenhuma">Nenhuma</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Problemas:</span>
+            <span id="status-diagnostics" class="status-val">0</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Abas abertas:</span>
+            <span id="status-open-tabs" class="status-val">0</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Git status:</span>
+            <span id="status-git-status" class="status-val" title="-">-</span>
+          </div>
+        </div>
+
+        <!-- Context Toggles -->
+        <div class="context-card">
+          <div class="context-card-title">Toggles de Contexto</div>
+          <div class="toggle-grid">
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-active-file" checked> Arquivo ativo
+            </label>
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-selection" checked> Seleção
+            </label>
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-diagnostics" checked> Problemas
+            </label>
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-open-files"> Abas abertas
+            </label>
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-git-diff"> Git diff
+            </label>
+            <label class="toggle-label">
+              <input type="checkbox" id="toggle-git-status" checked> Git status
+            </label>
+          </div>
+        </div>
+
+        <!-- Attached Files Section -->
+        <div class="context-card">
+          <div class="context-card-title">Arquivos anexados</div>
+          <div class="search-box-wrap">
+            <input type="search" id="file-search-input" placeholder="Buscar arquivo para anexar..." aria-label="Buscar arquivo para anexar">
+            <div id="file-search-results" class="search-results-list"></div>
+          </div>
+          <div id="attached-files-list" class="attached-chips">
+            <!-- Attached files chips -->
+          </div>
+        </div>
+
+        <!-- Code Search Section -->
+        <div class="context-card">
+          <div class="context-card-title">Buscar no código</div>
+          <div style="display: flex; gap: 6px;">
+            <input type="search" id="code-search-input" placeholder="Texto literal..." aria-label="Buscar texto no projeto">
+            <button type="button" id="btn-code-search" class="btn btn-sm" aria-label="Executar busca">Buscar</button>
+          </div>
+          <div id="code-search-results" class="search-results-list" style="margin-top: 6px; max-height: 180px;"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Modal "+ Conversa" -->
+  <div id="modal-new-conv" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-new-conv-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-new-conv-title" class="modal-title">+ Nova Conversa</h3>
+        <button type="button" class="btn btn-icon btn-close-modal" aria-label="Fechar modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-tabs">
+          <button type="button" id="tab-mode-chat" class="modal-tab-btn active">Chat (1 agente)</button>
+          <button type="button" id="tab-mode-party" class="modal-tab-btn">Party Mode (vários agentes)</button>
+        </div>
+
+        <div id="chat-mode-selection">
+          <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 8px;">Escolha o agente para conversar:</p>
+          <div id="new-conv-agent-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto;">
+            <!-- Agent items -->
+          </div>
+        </div>
+
+        <div id="party-mode-selection" style="display: none;">
+          <div style="margin-bottom: 12px;">
+            <label for="party-title-input" style="font-size: var(--font-size-xs); color: var(--text-muted); display: block; margin-bottom: 4px;">Título da discussão (opcional):</label>
+            <input type="text" id="party-title-input" placeholder="Ex: Discussão de arquitetura e testes">
+          </div>
+          <p style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 8px;">Selecione os agentes participantes:</p>
+          <div id="party-agent-checkboxes" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; max-height: 240px; overflow-y: auto;">
+            <!-- Checkboxes -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-close-modal">Cancelar</button>
+        <button type="button" id="btn-submit-new-conv" class="btn btn-primary">Iniciar Conversa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal "⚙ Modelos por agente" -->
+  <div id="modal-settings" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <h3 id="modal-settings-title" class="modal-title">⚙ Configuração de Modelos por Agente</h3>
+        <button type="button" class="btn btn-icon btn-close-modal" aria-label="Fechar modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Provider Status Cards -->
+        <div id="provider-status-list" class="provider-status-grid">
+          <!-- Cards injected dynamically -->
+        </div>
+
+        <!-- Bulk Action Row -->
+        <div class="bulk-apply-row">
+          <span style="font-size: var(--font-size-xs); font-weight: 600; white-space: nowrap;">Aplicar a todos:</span>
+          <select id="bulk-provider-select" style="width: 140px;" aria-label="Provider em massa">
+            <option value="claude-cli">Claude CLI</option>
+            <option value="agy-cli">AGY CLI</option>
+            <option value="openai">OpenAI API</option>
+          </select>
+          <input type="text" id="bulk-model-input" list="bulk-models-datalist" placeholder="Nome do modelo..." aria-label="Modelo em massa">
+          <datalist id="bulk-models-datalist"></datalist>
+          <button type="button" id="btn-bulk-apply" class="btn btn-secondary btn-sm">Aplicar</button>
+        </div>
+
+        <p style="font-size: 11px; color: var(--text-muted);">
+          ℹ Nota: As credenciais ficam configuradas no arquivo <code>.env</code> (ex.: <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>). As alterações são salvas automaticamente.
+        </p>
+
+        <!-- Agents Table -->
+        <div class="settings-table-wrap">
+          <table class="settings-table">
+            <thead>
+              <tr>
+                <th>Agente</th>
+                <th>Provider</th>
+                <th>Modelo</th>
+                <th style="width: 140px; text-align: center;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="settings-agents-tbody">
+              <!-- Rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-close-modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal "Visualizar Arquivo" -->
+  <div id="modal-view-file" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-view-file-title">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 id="modal-view-file-title" class="modal-title" style="font-family: var(--font-mono); font-size: var(--font-size-sm);">Visualizar Arquivo</h3>
+          <span id="file-view-truncated-badge" class="badge badge-danger" style="display: none;">Truncado (&gt;200 KB)</span>
+        </div>
+        <button type="button" class="btn btn-icon btn-close-modal" aria-label="Fechar visualizador">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 0;">
+        <pre style="margin: 0; padding: 14px; background-color: var(--code-bg); overflow: auto; max-height: 55vh;"><code id="file-view-content" style="font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--text-primary);"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-file-view-open-vscode" class="btn btn-primary btn-sm">Abrir no VS Code</button>
+        <button type="button" class="btn btn-secondary btn-sm btn-close-modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen 401 Auth Error Screen -->
+  <div id="auth-error-screen" role="alert" aria-live="assertive">
+    <div class="auth-error-card">
+      <div class="auth-error-icon">🔒</div>
+      <h2 class="auth-error-title">Acesso Não Autorizado</h2>
+      <p class="auth-error-msg">
+        Token inválido — abra a URL exibida pelo BMAD Studio (comando 'BMAD: Abrir no navegador' no VS Code ou console do standalone).
+      </p>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="markdown.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

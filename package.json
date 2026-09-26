@@ -1,0 +1,94 @@
+{
+  "name": "bmad-studio",
+  "displayName": "BMAD Studio",
+  "description": "Estúdio de agentes e workflows de IA integrado ao VS Code para metodologia BMAD",
+  "publisher": "local",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "start": "node standalone.js --open",
+    "check": "node --check extension.js && node --check standalone.js",
+    "package": "npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository --skip-license -o bmad-studio.vsix"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "bmadStudio.open",
+        "title": "BMAD: Abrir Studio",
+        "category": "BMAD Studio"
+      },
+      {
+        "command": "bmadStudio.openBrowser",
+        "title": "BMAD: Abrir no navegador",
+        "category": "BMAD Studio"
+      },
+      {
+        "command": "bmadStudio.restart",
+        "title": "BMAD: Reiniciar servidor",
+        "category": "BMAD Studio"
+      },
+      {
+        "command": "bmadStudio.copyUrl",
+        "title": "BMAD: Copiar URL",
+        "category": "BMAD Studio"
+      },
+      {
+        "command": "bmadStudio.openEnv",
+        "title": "BMAD: Editar .env",
+        "category": "BMAD Studio"
+      },
+      {
+        "command": "bmadStudio.askAboutSelection",
+        "title": "BMAD: Perguntar aos agentes sobre a seleção",
+        "category": "BMAD Studio"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "bmadStudio.open",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "bmadStudio.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "bmad@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "BMAD Studio",
+      "properties": {
+        "bmadStudio.envFile": {
+          "type": "string",
+          "default": "",
+          "description": "Caminho customizado para o arquivo .env (deixe vazio para usar a resolução padrão)"
+        },
+        "bmadStudio.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Inicia o servidor HTTP local do BMAD Studio automaticamente ao ativar a extensão"
+        },
+        "bmadStudio.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Porta do servidor HTTP do BMAD Studio (0 = usar porta do .env ou padrão 4747)"
+        }
+      }
+    }
+  }
+}
