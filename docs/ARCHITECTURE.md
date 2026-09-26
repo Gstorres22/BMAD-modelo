@@ -252,11 +252,17 @@ Comando: `<AGY_CLI_PATH> --print= --input-format stream-json --output-format str
 - listModels(): ver "Catálogo de modelos".
 
 ### openai.js
-- `POST {OPENAI_BASE_URL}/chat/completions` com `Authorization: Bearer OPENAI_API_KEY`, `stream: true`, `model`,
-  `messages: [{role:'system', content: systemPrompt}, ...messages]`, `tools` de `server/tools.js`.
-- Não enviar `temperature` (modelos gpt-5 rejeitam). Parse SSE (`data: ...`, `[DONE]`), acumula `delta.content` → evento
-  `delta`, acumula `delta.tool_calls` por index. Se `finish_reason === 'tool_calls'`: executa tools, emite `tool`, anexa
-  `assistant` (com tool_calls) + mensagens `tool`, e repete (máx 12 iterações).
+- Modo por `OPENAI_API_MODE` (auto | responses | chat). **auto** = Responses API quando `OPENAI_BASE_URL` é a OpenAI oficial,
+  Chat Completions para endpoints compatíveis de terceiros.
+- **Responses API** (`POST {base}/responses`): `instructions` = systemPrompt, `input` = histórico, tools no formato
+  `{ type:'function', name, description, parameters, strict:false }`, `stream:true`, `store:false` e
+  `include:['reasoning.encrypted_content']`. Deltas de `response.output_text.delta`; ao `response.completed`, se houver
+  itens `function_call`, reenvia a saída inteira (com o raciocínio criptografado) + `function_call_output` e repete
+  (máx 12 iterações). Motivo: nos modelos novos (gpt-5.6+, gpt-6…) `/chat/completions` recusa function tools com
+  raciocínio ativo ("Function tools with reasoning_effort are not supported…").
+- **Chat Completions** (`POST {base}/chat/completions`): `messages` com system + histórico, acumula `delta.tool_calls` por
+  index, executa as tools e repete.
+- Não enviar `temperature` (modelos gpt-5 rejeitam).
 - Sem `OPENAI_API_KEY` → lançar `Error('OPENAI_API_KEY não configurada no .env')`.
 - listModels(): ver "Catálogo de modelos".
 
